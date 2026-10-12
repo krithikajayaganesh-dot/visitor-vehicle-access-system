@@ -61,9 +61,64 @@ export default function GuardDashboard() {
   // Today's lists state
   const [todayPasses, setTodayPasses] = useState([]);
   const [todayLogs, setTodayLogs] = useState([]);
-  const [activeTab, setActiveTab] = useState("scanner"); // "scanner", "passes", "logs"
+  const [activeTab, setActiveTab] = useState("scanner"); // "scanner", "anpr", "passes", "logs"
   const [visiblePassesCount, setVisiblePassesCount] = useState(10);
   const [visibleLogsCount, setVisibleLogsCount] = useState(10);
+
+  // ANPR AI Camera / Plate Scanner state
+  const [anprFile, setAnprFile] = useState(null);
+  const [anprPreview, setAnprPreview] = useState(null);
+  const [anprLoading, setAnprLoading] = useState(false);
+  const [anprResult, setAnprResult] = useState(null);
+  const [anprAction, setAnprAction] = useState("entry");
+  const anprFileInputRef = useRef(null);
+
+  const handleAnprFileSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setAnprFile(file);
+      setAnprPreview(URL.createObjectURL(file));
+      setAnprResult(null);
+    }
+  };
+
+  const handleAnprScan = async () => {
+    if (!anprFile) {
+      setError("Please select or capture a vehicle photo first.");
+      return;
+    }
+    setError("");
+    setAnprLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", anprFile);
+      formData.append("action", anprAction);
+
+      const res = await API.post("/api/anpr/scan", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setAnprResult(res.data);
+      if (res.data.verified) {
+        setToast({ message: res.data.message, type: "success" });
+        fetchTodayData();
+      } else {
+        setToast({ message: res.data.message, type: "warning" });
+      }
+    } catch (err) {
+      const msg = err.response?.data?.detail || "ANPR scanning failed. Please try again.";
+      setError(msg);
+      setToast({ message: msg, type: "error" });
+    } finally {
+      setAnprLoading(false);
+    }
+  };
+
+  const handleFillWalkinFromAnpr = (plate) => {
+    setManualVehicle(plate || "");
+    setActiveTab("scanner");
+    setToast({ message: `Pre-filled vehicle ${plate} in Walk-in Entry form.`, type: "info" });
+  };
+
 
   // Sorting helper
   const sortData = (list) => {
@@ -467,7 +522,14 @@ export default function GuardDashboard() {
             onClick={() => setActiveTab("scanner")}
             style={{ display: "flex", alignItems: "center", gap: "6px" }}
           >
-            <CameraIcon size={16} /> Gate Scanner & Manual Entry
+            <CameraIcon size={16} /> QR Scanner & Manual Entry
+          </button>
+          <button
+            className={`tab ${activeTab === "anpr" ? "active" : ""}`}
+            onClick={() => setActiveTab("anpr")}
+            style={{ display: "flex", alignItems: "center", gap: "6px" }}
+          >
+            <CameraIcon size={16} /> ANPR AI Plate Scanner
           </button>
           <button
             className={`tab ${activeTab === "passes" ? "active" : ""}`}
@@ -654,7 +716,160 @@ export default function GuardDashboard() {
           </>
         )}
 
+        {/* Tab: ANPR Camera & AI Plate Scanner */}
+        {activeTab === "anpr" && (
+          <div className="panel">
+            <div className="panel-header">
+              <h3 style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <CameraIcon size={20} /> ANPR Automatic License Plate Recognition
+              </h3>
+              <span className="badge badge-in_campus" style={{ fontSize: "0.8rem", padding: "4px 8px" }}>
+                AI Engine: FCOS + Fast-Plate-OCR (ONNX)
+              </span>
+            </div>
+
+            <p style={{ color: "var(--text-muted)", fontSize: "0.9rem", marginTop: 0, marginBottom: "16px" }}>
+              Capture gate camera frame or upload vehicle snapshot to automatically detect Indian license plates and grant barrier access.
+            </p>
+
+            <div style={{ display: "flex", gap: "20px", flexWrap: "wrap", marginBottom: "20px" }}>
+              {/* Gate Action Selection */}
+              <div style={{ flex: "1 1 300px" }}>
+                <label style={{ display: "block", marginBottom: "8px", fontWeight: 600, fontSize: "0.9rem" }}>
+                  Gate Action
+                </label>
+                <div className="gate-action-buttons" style={{ marginBottom: "16px" }}>
+                  <button
+                    type="button"
+                    className={`btn-action-toggle ${anprAction === "entry" ? "active-entry" : ""}`}
+                    onClick={() => setAnprAction("entry")}
+                    style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+                  >
+                    <VehicleEntryIcon size={16} /> Vehicle Entry
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn-action-toggle ${anprAction === "exit" ? "active-exit" : ""}`}
+                    onClick={() => setAnprAction("exit")}
+                    style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+                  >
+                    <VehicleExitIcon size={16} /> Vehicle Exit
+                  </button>
+                </div>
+
+                <div style={{ border: "2px dashed var(--border)", borderRadius: "var(--radius)", padding: "24px", textAlign: "center", background: "var(--bg-card)" }}>
+                  <input
+                    type="file"
+                    ref={anprFileInputRef}
+                    accept="image/*"
+                    onChange={handleAnprFileSelect}
+                    style={{ display: "none" }}
+                  />
+                  {anprPreview ? (
+                    <div>
+                      <img
+                        src={anprPreview}
+                        alt="Vehicle Snapshot"
+                        style={{ maxWidth: "100%", maxHeight: "240px", borderRadius: "8px", objectFit: "contain", border: "1px solid var(--border)", marginBottom: "12px" }}
+                      />
+                      <div style={{ display: "flex", gap: "10px", justifyContent: "center" }}>
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-sm"
+                          onClick={() => anprFileInputRef.current?.click()}
+                        >
+                          Change Photo
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm"
+                          onClick={handleAnprScan}
+                          disabled={anprLoading}
+                          style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+                        >
+                          {anprLoading ? "Scanning Plate..." : "🔍 Run AI Plate Recognition"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div style={{ marginBottom: "12px", color: "var(--primary)" }}>
+                        <CameraIcon size={48} />
+                      </div>
+                      <p style={{ margin: "0 0 12px 0", fontWeight: 500 }}>
+                        Select or capture a gate camera vehicle photo
+                      </p>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        onClick={() => anprFileInputRef.current?.click()}
+                      >
+                        Upload / Capture Vehicle Image
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ANPR Live Result / Barrier Gate Card */}
+              <div style={{ flex: "1 1 350px" }}>
+                <label style={{ display: "block", marginBottom: "8px", fontWeight: 600, fontSize: "0.9rem" }}>
+                  AI Verification & Barrier Gate Status
+                </label>
+                {anprResult ? (
+                  <div
+                    style={{
+                      border: anprResult.gate_open ? "2px solid #10b981" : "2px solid #ef4444",
+                      background: anprResult.gate_open ? "rgba(16, 185, 129, 0.08)" : "rgba(239, 68, 68, 0.08)",
+                      borderRadius: "var(--radius)",
+                      padding: "20px",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
+                      <span style={{ fontWeight: 700, fontSize: "1.1rem", color: anprResult.gate_open ? "#10b981" : "#ef4444" }}>
+                        {anprResult.gate_open ? "🟢 BARRIER GATE: OPEN" : "🔴 BARRIER GATE: CLOSED"}
+                      </span>
+                      <span className="badge" style={{ background: "#1f2937", color: "#f9fafb", fontFamily: "monospace", letterSpacing: "1px", fontSize: "1rem", padding: "6px 12px", border: "2px solid #e5e7eb" }}>
+                        {anprResult.plate_number || "NO PLATE"}
+                      </span>
+                    </div>
+
+                    <p style={{ margin: "0 0 14px 0", fontWeight: 600, fontSize: "0.95rem" }}>
+                      {anprResult.message}
+                    </p>
+
+                    {anprResult.visitor_pass && (
+                      <div style={{ background: "var(--bg-input)", borderRadius: "6px", padding: "12px", fontSize: "0.85rem", marginBottom: "12px" }}>
+                        <div><strong>Visitor:</strong> {anprResult.visitor_pass.visitor_name}</div>
+                        <div><strong>Vehicle:</strong> {anprResult.visitor_pass.vehicle_number}</div>
+                        <div><strong>Status:</strong> {anprResult.visitor_pass.status}</div>
+                      </div>
+                    )}
+
+                    {!anprResult.verified && anprResult.plate_number && (
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        onClick={() => handleFillWalkinFromAnpr(anprResult.plate_number)}
+                        style={{ marginTop: "8px" }}
+                      >
+                        📝 Create Walk-in Entry with {anprResult.plate_number}
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: "24px", textAlign: "center", color: "var(--text-muted)" }}>
+                    <div style={{ marginBottom: "8px" }}><CheckCircleIcon size={32} /></div>
+                    <p style={{ margin: 0, fontSize: "0.9rem" }}>Awaiting image scan. Select a vehicle photo on the left to verify access.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Tab 2: Today's Approved Visitor Passes */}
+
         {activeTab === "passes" && (
           <div className="panel">
             <div className="panel-header">

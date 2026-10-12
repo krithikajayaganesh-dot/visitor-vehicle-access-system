@@ -79,20 +79,6 @@ def verify_qr_code(
         db.commit()
         return QRVerifyResponse(valid=False, message="❌ Pass Expired: This visitor pass has expired.", visitor_pass=visitor_pass)
 
-    # ── Deduplication Check ──
-    # If this exact action was recorded within the last 10 seconds, return the success response without showing a false denial
-    recent_log = db.query(AccessLog).filter(
-        AccessLog.visitor_pass_id == visitor_pass.id,
-        AccessLog.action == data.action,
-        AccessLog.timestamp >= datetime.utcnow() - timedelta(seconds=10)
-    ).first()
-    if recent_log:
-        return QRVerifyResponse(
-            valid=True,
-            message=f"✅ Vehicle {data.action.upper()} recorded for {visitor_pass.visitor_name}",
-            visitor_pass=visitor_pass,
-        )
-
     # ── State Validation ──
     if data.action == "entry":
         if visitor_pass.status in [PassStatus.in_campus, PassStatus.used]:

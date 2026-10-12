@@ -47,7 +47,36 @@ from src.semantic_segmentation.utils.util import (
     get_warped_plates, preprocess_image as ss_preprocess
 )
 from src.License_Plate_Recognition.model.LPRNet import build_lprnet
-from src.License_Plate_Recognition.test_LPRNet import Greedy_Decode_inference
+
+CHARS = [
+    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+    "A", "B", "C", "D", "E", "F", "G", "H", "I", "J",
+    "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T",
+    "U", "V", "W", "X", "Y", "Z", "-"
+]
+
+def Greedy_Decode_inference(Net, images):
+    if torch.cuda.is_available():
+        images = images.cuda()
+    prebs = Net(images).cpu().detach().numpy()
+    preb_labels = []
+    for i in range(prebs.shape[0]):
+        preb = prebs[i, :, :]
+        preb_label = [np.argmax(preb[:, j], axis=0) for j in range(preb.shape[1])]
+        no_repeat_blank_label = []
+        pre_c = preb_label[0]
+        if pre_c != len(CHARS) - 1:
+            no_repeat_blank_label.append(pre_c)
+        for c in preb_label:
+            if (pre_c == c) or (c == len(CHARS) - 1):
+                if c == len(CHARS) - 1:
+                    pre_c = c
+                continue
+            no_repeat_blank_label.append(c)
+            pre_c = c
+        preb_labels.append(no_repeat_blank_label)
+    return ["".join(CHARS[j] for j in label) for label in preb_labels]
+
 
 def load_fcos():
     model = FCOSDetector(mode="inference", config=DefaultConfig).eval()
@@ -74,12 +103,16 @@ def load_lprnet():
 
 # ─── OCR Wrappers ───
 def ocr_tesseract(crop):
-    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-    gray = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-    gray = cv2.GaussianBlur(gray, (3, 3), 0)
-    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    config = '--oem 3 --psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-    return pytesseract.image_to_string(thresh, config=config).strip()
+    try:
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        gray = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        gray = cv2.GaussianBlur(gray, (3, 3), 0)
+        _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        config = '--oem 3 --psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+        return pytesseract.image_to_string(thresh, config=config).strip()
+    except Exception:
+        return "N/A (Tesseract binary missing)"
+
 
 def ocr_easyocr(crop):
     if not easyocr_reader: return "N/A"

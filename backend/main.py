@@ -9,6 +9,7 @@ from routes.auth import router as auth_router
 from routes.admin import router as admin_router
 from routes.qr import router as qr_router
 from routes.api_keys import router as api_keys_router
+from routes.anpr import router as anpr_router
 from csrf import CSRFMiddleware, router as csrf_router
 
 # ─── Create App ───
@@ -41,6 +42,8 @@ app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(qr_router)
 app.include_router(api_keys_router)
+app.include_router(anpr_router)
+
 
 
 # ─── Startup Event ───
@@ -62,9 +65,9 @@ def on_startup():
             )
             db.add(admin)
             db.commit()
-            print(f"✅ Default admin created: {DEFAULT_ADMIN_USERNAME} / {DEFAULT_ADMIN_PASSWORD}")
+            print(f"[OK] Default admin created: {DEFAULT_ADMIN_USERNAME} / {DEFAULT_ADMIN_PASSWORD}")
         else:
-            print("ℹ️  Admin user already exists, skipping seed.")
+            print("[INFO] Admin user already exists, skipping seed.")
     finally:
         db.close()
 
